@@ -14,7 +14,7 @@ For a particle of charge q in an time dependent electric field E(t), that force 
 
 Hence, one can write the acceleration as
 
-<img src="aqmE.png" alt="a=q/m*E" height="50px">
+<img src="./Images/Readme/aqmE.png" alt="a=q/m*E" height="50px">
 
 Integrating this equation yields the velocity and the position.
 
