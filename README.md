@@ -44,7 +44,7 @@ simulation_parameters = {'savename': 'Results/w3w/testnewcode.h5',
                         'Atom': 'Argon'}
 ```
 
-## ToDo
+# ToDo
 
 - [x] get parameters from list of atoms
 - [x] make a init function for all user inputs
