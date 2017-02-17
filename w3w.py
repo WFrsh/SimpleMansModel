@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import numpy as np
 from scipy import integrate
 from scipy.optimize import curve_fit
@@ -84,18 +86,20 @@ class _Ionization(object):
                     Z_c:    populated charge state
                     F:      Field amplitude in au
                     l:      angular quantum number
+                    alpha:  empirical fittinng factor
             output: rate of ionization"""
         # get all necessary variables for the cumputation of the ADK rate
         arraym = np.linspace(-l,+l,num=(2*l+1),endpoint=True)
         kappa = np.sqrt(2*I_p)
+        F = np.abs(F) # use field strength instead of the electric field
         w_ADK = 0
         for m in arraym: # loop over all magnetic quantum numbers and sum the ADK rate over all
             first_term = Cl**2/(2**np.abs(m)*np.math.factorial(np.abs(m)))
             second_term = (2*l+1)*np.math.factorial(l+np.abs(m))/(2*np.math.factorial(l-np.abs(m)))
             third_term = 1/(kappa**(2*Z_c/kappa-1))
-            fourth_term = (2*kappa**3/np.abs(F))**(2*Z_c/kappa-np.abs(m)-1)
-            fifth_term = np.exp(-2*kappa**3/(3*np.abs(F)))
-            sixth_term = np.exp(-alpha*(Z_c**2/I_p)*(np.abs(F)/kappa**3))
+            fourth_term = (2*kappa**3/F)**(2*Z_c/kappa-np.abs(m)-1)
+            fifth_term = np.exp(-2*kappa**3/(3*F))
+            sixth_term = np.exp(-alpha*(Z_c**2/I_p)*(F/kappa**3))
             w_ADK += first_term*second_term*third_term*fourth_term*fifth_term*sixth_term
         w_ADK = w_ADK/(2*l+1)
         return w_ADK
@@ -205,7 +209,6 @@ class _Avg(object):
 
         return S_avg
 
-
 class _Asymmetry(object):
     """docstring for _Asymmetry"""
 
@@ -226,7 +229,10 @@ class _Asymmetry(object):
         return a*np.sin(2*np.pi/b*x + c)
 
     def fit_asymmetry(dist, phisteps, npbins):
-        """calculate the asymmetry for each phase and fit a sine function to it"""
+        """calculate the asymmetry for each phase and fit a sine function to it
+            input:  dist:     final distribution of electron momenta
+                    phisteps: sampling phases
+                    npbins:   number of momentum bins"""
         A = _Asymmetry.calculate_asymmetry(dist,phisteps, npbins)
         x = np.arange(A.shape[0])
         popt, cov = curve_fit(_Asymmetry.sin_fct,x,A, p0=[1,phisteps,phisteps/4])
@@ -238,48 +244,95 @@ class _Asymmetry(object):
 class _Run(object):
     """docstring for _Run"""
 
-    def main(phi,nI,pbins,npbins,timesteps):
-        """This is the main loop which runs in parallel on all cores"""
+    def init_params(parameters):
+        """get the parameters for the ADK rate
+            input:  parameters: the simulation parameters
+            output: ADK_params: parameters for calculating the ADK rate
+                    t         : sampling times
+                    dt        : timestep
+                    pbins     : momentum bins
+                    phases    : sampling phases"""
+        Atom_params = { 'Argon': {'Cl': 2.44, 'I_p': 0.579, 'Z_c': 1, 'l': 1, 'alpha': 9},
+                        'Neon':  {'Cl': 2.10, 'I_p': 0.793, 'Z_c': 1, 'l': 1, 'alpha': 9},
+                        'Helium':{'Cl': 3.13, 'I_p': 0.904, 'Z_c': 1, 'l': 0, 'alpha': 7}}
+        ADK_params = Atom_params[parameters['Atom']]
+        t, dt = np.linspace(-parameters['min/maxtime'],parameters['min/maxtime'],
+                            parameters['timesteps'],retstep=True) # time in fs 2050au = 50fs
+        pbins = _Ionization.p_bins(parameters['pmax'],parameters['npbins'])
+        phases = np.linspace(0,parameters['phimax'],parameters['phisteps'],endpoint=False)
+        return ADK_params, t, dt, pbins, phases
+
+    def calculation(phi,nI,pbins,npbins,timesteps):
+        """This is the calculation loop which runs in parallel on all cores
+            input:  phi:    current phase
+                    nI:     number of intensities for focus average
+                    pbins:  momentum bins
+                    npbins: number of momentum bins
+                    timesteps: sampling times
+            output: results of the calculation"""
         output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
         return output
 
+    def main(phisteps, npbins, timesteps, nI, pbins):
+        """The main part of the program
+            input:  phisteps:   phases to calculate at
+                    npbins:     number of momentum bins
+                    timesteps:  sampling times
+                    nI:         number of intensities for focus average
+                    pbins:      momentum bins
+            output: outputs:    results of the calculations at each phase
+                    asymmetry:  The fitted asymmetry"""
+        averaged_dist = np.zeros((phisteps,npbins))
+        E_fields = np.zeros((phisteps,timesteps))
+        inputs = (nI,pbins,npbins,timesteps)
+
+        num_cores = multiprocessing.cpu_count() # number of cores available
+        # return a list of the outputs for different phases
+        outputs = Parallel(n_jobs=num_cores)(delayed(_Run.calculation)(phi, *inputs) for phi in phases) # parallel
+
+        for i in range(phisteps):
+            averaged_dist[i,:] = outputs[i][7]
+            E_fields[i,:] = outputs[i][5]
+
+        asymmetry = _Asymmetry.fit_asymmetry(averaged_dist, phisteps, npbins)
+        asymmetry = asymmetry + (E_fields,)
+        return outputs, asymmetry
+
 class _Save(object):
     """docstring for _Save"""
 
-    def save_results(results):
-        """save the results in a binary .npz file"""
-        with open('Results/3colours/3coloursraw.npz', 'wb') as f:
-            np.savez(f, distribution=results[0],intensities=results[1],N0p=results[2],N1p=results[3],rates=results[4])
-
-    def save_inits_hdf5(savefile,t,pbins,phases):
+    def save_inits_hdf5(savefile,Atom,ADK_params,t,dt,pbins,phases):
         """save the initial variables for the simulation in an hdf5 file"""
-        f = h5py.File('Results/w3w/'+savefile, 'a') # create a hdf5 file object
+        f = h5py.File(savefile, 'a') # create a hdf5 file object
         grp = f.create_group('variables')
-        names = ['target ion','timesteps','momentum bins', 'C_l', 'I_p', 'Z_c', 'l', 'phases']
-        variables = ['Argon', t, pbins, 2.19, 0.579, 1., 1, phases]
-        for i in enumerate(variables):
-            dset = grp.create_dataset("{}".format(names[i[0]]), data=i[1]) #create a dataset in the hdf5file
+        names = ['Atom'] + list(ADK_params.keys()) + ['sampling times','timestep','momentum bins','phases']
+        variables = [Atom] + list(ADK_params.values()) + [t, dt, pbins, phases]
+        for i in zip(names,variables):
+            dset = grp.create_dataset("{}".format(i[0]), data=i[1]) #create a dataset in the hdf5file
         f.flush() # save to disk
 
-    def save_results_hdf5(savefile,results,phi):
+    def save_results_hdf5(savefile,outputs,phases):
         """save the results in an hdf5 file
             create a subgroup for each phi step"""
-        f = h5py.File('Results/w3w/'+savefile, 'a') # create a hdf5 file object
-        grp = f.create_group('phi={0:.3f}'.format(phi))
+        f = h5py.File(savefile, 'a') # create a hdf5 file object
         names = ['distribution','intensities','N0p','N1p','rates','E-field','final momentum',
                  'focus averaged spectrum','focus averaged final momentum','phase in pi']
-        results = results + (phi,)
-        for i in enumerate(results):
-            dset = grp.create_dataset("{}".format(names[i[0]]), data=i[1]) #create a dataset in the hdf5file
-        f.flush() # save to disk
+        for i in range(len(phases)): # loop over all outputs for the different phases
+            phi = phases[i]
+            results = outputs[i]
+            results = results + (phi,)
+            grp = f.create_group('phi={0:.3f}'.format(phi))
+            for j in enumerate(results):
+                dset = grp.create_dataset("{}".format(names[j[0]]), data=j[1]) #create a dataset in the hdf5file
+            f.flush() # save to disk
 
     def save_asymmetry_hdf5(savefile,results):
         """save the asymetry distribution in an hdf5 file
             create a subgroup for it"""
-        f = h5py.File('Results/w3w/'+savefile, 'a') # create a hdf5 file object
+        f = h5py.File(savefile, 'a') # create a hdf5 file object
         grp = f.create_group('asymmetry')
         names = ['Distribution', 'Asymmetry', 'fitted Asymmeetry', 'Asymmetry parameter', 'Asymmetry phase','E-fields']
         for i in enumerate(results):
@@ -288,35 +341,34 @@ class _Save(object):
 
 if __name__ == '__main__':
     """code in here will be executed when running the script"""
-    timesteps = 10000
-    t, dt = np.linspace(-2050,2050,timesteps,retstep=True) # time in fs 2050au = 50fs
     e = -1 # charge in au
     m = 1 # mass in au
 
-    basename = 'newADK.h5'
-    npbins = 50
-    pbins = _Ionization.p_bins(3,npbins)
-    phisteps = 50
-    phases = np.linspace(0,2,phisteps,endpoint=False)
-    nI = 10
+    simulation_parameters = {'savename': 'Results/w3w/testnewcode.h5',
+                            'timesteps': 1000,
+                            'min/maxtime': 2050,
+                            'npbins': 50,
+                            'pmax': 3,
+                            'phisteps': 25,
+                            'phimax': 2,
+                            'nI': 10,
+                            'Atom': 'Argon'}
 
-
-
-    savename = basename
-    _Save.save_inits_hdf5(savename,t,pbins,phases)
-    averaged_dist = np.zeros((phisteps,npbins))
-    E_fields = np.zeros((phisteps,timesteps))
-    inputs = (nI,pbins,npbins,timesteps)
-
-    num_cores = multiprocessing.cpu_count() # number of cores available
-    # return a list of the outputs for different phases
-    outputs = Parallel(n_jobs=num_cores)(delayed(_Run.main)(phi, *inputs) for phi in phases) # parallel
-
-    for i in range(phisteps):
-        averaged_dist[i,:] = outputs[i][7]
-        E_fields[i,:] = outputs[i][5]
-        _Save.save_results_hdf5(savename,outputs[i],phases[i])
-
-    results = _Asymmetry.fit_asymmetry(averaged_dist, phisteps, npbins)
-    results = results + (E_fields,)
-    _Save.save_asymmetry_hdf5(savename,results)
+    ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
+    _Save.save_inits_hdf5(  simulation_parameters['savename'],
+                            simulation_parameters['Atom'],
+                            ADK_params,
+                            t,
+                            dt,
+                            pbins,
+                            phases)
+    outputs, asymmetry = _Run.main( simulation_parameters['phisteps'],
+                                    simulation_parameters['npbins'],
+                                    simulation_parameters['timesteps'],
+                                    simulation_parameters['nI'],
+                                    pbins)
+    _Save.save_results_hdf5(simulation_parameters['savename'],
+                            outputs,
+                            phases)
+    _Save.save_asymmetry_hdf5(  simulation_parameters['savename'],
+                                asymmetry)

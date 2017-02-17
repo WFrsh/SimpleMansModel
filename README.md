@@ -23,8 +23,30 @@ Integrating this equation yields the velocity and the position.
 <img src="./Images/Readme/xqmE.png" alt="x=q/m*E..." height="50px">
 
 
+# Usage of the script
+
+In
+
+```python3
+if __name__ == '__main__':
+```
+edit the dictionary simulation_parameters at gusto
+
+```python3
+simulation_parameters = {'savename': 'Results/w3w/testnewcode.h5',
+                        'timesteps': 1000,
+                        'min/maxtime': 2050,
+                        'npbins': 50,
+                        'pmax': 3,
+                        'phisteps': 25,
+                        'phimax': 2,
+                        'nI': 10,
+                        'Atom': 'Argon'}
+```
 
 ## ToDo
 
-- [ ] get parameters from list of atoms
-- [ ] make a init function for all user inputs
+- [x] get parameters from list of atoms
+- [x] make a init function for all user inputs
+- [ ] changing ratio between the two beams
+- [ ] put laser parameters in the input dictionary
