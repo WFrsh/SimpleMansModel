@@ -50,3 +50,4 @@ simulation_parameters = {'savename': 'Results/w3w/testnewcode.h5',
 - [x] make a init function for all user inputs
 - [ ] changing ratio between the two beams
 - [ ] put laser parameters in the input dictionary
+- [ ] save all input parameters, i.e. simulation_parameters dictionary

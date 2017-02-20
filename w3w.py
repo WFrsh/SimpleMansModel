@@ -140,7 +140,9 @@ class _Ionization(object):
         N0p = np.ones((nI,tmax)) # neutrals
         N1p = np.zeros((nI,tmax)) # single ionized
 
-        I = np.linspace(0.001,Imax,nI) # intensities from 0 to 10*max intensity
+        Ir = np.linspace(0.001,Imax,nI) # intensities of the red beam
+        ratio = np.linspace(1,0.01,nI) # decrease the ratio with increasing intensity
+        Iuv = ratio*Ir # intensity of the uv beam
         # loop over different peak intensity
         for i in range(nI):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
@@ -148,7 +150,7 @@ class _Ionization(object):
             Er = _Pulse.pulse_au(t, 30, 800, 1E14, 0, 0, 0)
             # Eb = _Pulse.pulse_au(t, 30, 400, ratio*1E14, phi, 0, 0)
             Euv = _Pulse.pulse_au(t, 30, 266, .037*1E14, phi, 0, 0)
-            Ecombined_i = np.sqrt(I[-i-1])*(Er + Euv)
+            Ecombined_i = np.sqrt(Ir[-i-1])*Er + np.sqrt(Iuv[-i-1])*Euv
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
@@ -370,5 +372,4 @@ if __name__ == '__main__':
     _Save.save_results_hdf5(simulation_parameters['savename'],
                             outputs,
                             phases)
-    _Save.save_asymmetry_hdf5(  simulation_parameters['savename'],
-                                asymmetry)
+    _Save.save_asymmetry_hdf5(  simulation_parameters['savename'],asymmetry)
