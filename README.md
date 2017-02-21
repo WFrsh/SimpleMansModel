@@ -48,6 +48,9 @@ simulation_parameters = {'savename': 'Results/w3w/testnewcode.h5',
 
 - [x] get parameters from list of atoms
 - [x] make a init function for all user inputs
-- [ ] changing ratio between the two beams
-- [ ] put laser parameters in the input dictionary
-- [ ] save all input parameters, i.e. simulation_parameters dictionary
+- [x] changing ratio between the two beams
+- [x] put laser parameters in the input dictionary
+- [x] save all input parameters, i.e. simulation_parameters dictionary
+- [ ] save the individual intensities or at least the ratio
+- [ ] save the focus average volume
+- [ ] verify that the volume focus average works as well as the intensity focus average
