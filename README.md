@@ -23,6 +23,15 @@ Integrating this equation yields the velocity and the position.
 <img src="./Images/Readme/xqmE.png" alt="x=q/m*E..." height="50px">
 
 
+# Difference in focus averaging
+
+* The w3w.py script uses a focus average where the intensities are divided in equally spaced parts that are then are weighted by the respective volume of that intensity.
+* The w3w_volume_avg.py script divides the focus cross section into equally spaced parts that are then also weighted by their respective volume
+
+![intensity focus averaging](./Images/Readme/focus_avg_int.png)
+![volume focus averaging](./Images/Readme/focus_avg_vol.png)
+
+
 # Usage of the script
 
 In
@@ -44,12 +53,24 @@ simulation_parameters = {'savename': 'Results/w3w/testnewcode.h5',
                         'Atom': 'Argon'}
 ```
 
+For the w3w_volume_avg.py script also the laser parameters can be changed simply with a dictionary.
+
+```python3
+laser_parameters = {'Imax_red': 1.0E14,
+                    't_red(fs)': 30,
+                    'FWHM_red(um)': 23,
+                    'Imax_uv': 1.2E13,
+                    't_uv(fs)': 30,
+                    'FWHM_uv(um)': 16}
+```
+
 # ToDo
 
 - [x] get parameters from list of atoms
 - [x] make a init function for all user inputs
 - [x] changing ratio between the two beams
 - [x] put laser parameters in the input dictionary
+- [ ] put laser parameters in the input dictionary for w3w.py script
 - [x] save all input parameters, i.e. simulation_parameters dictionary
 - [ ] save the individual intensities or at least the ratio
 - [ ] save the focus average volume
