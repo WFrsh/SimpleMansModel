@@ -75,3 +75,4 @@ laser_parameters = {'Imax_red': 1.0E14,
 - [ ] save the individual intensities or at least the ratio
 - [ ] save the focus average volume
 - [ ] verify that the volume focus average works as well as the intensity focus average
+- [ ] is the volume average working correctly?
