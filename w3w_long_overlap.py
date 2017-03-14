@@ -122,7 +122,7 @@ class _Ionization(object):
         pbins = np.linspace(-pmax,pmax,npbins+1)
         return pbins
 
-    def final_distribution_intensity_atoms(nI,pbins,npbins, phi,timesteps,laser_parameters):
+    def final_distribution_intensity_atoms(nI,pbins,npbins, delay,timesteps,laser_parameters):
         '''Calculate the momentum distribution
         input: Imax
                nI
@@ -151,7 +151,7 @@ class _Ionization(object):
             # create the pulse
             Er = _Pulse.pulse_au(t, 30, 800, Ir_x, 0, 0, 0)
             # Eb = _Pulse.pulse_au(t, 30, 400, ratio*1E14, phi, 0, 0)
-            Euv = _Pulse.pulse_au(t, 30, 266, Iuv_x, phi, 0, 0)
+            Euv = _Pulse.pulse_au(t, 30, 266, Iuv_x, 0, delay, 0)
             Ecombined_i = Er + Euv
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
@@ -251,7 +251,7 @@ class _Run(object):
         t, dt = np.linspace(-parameters['mintime'],parameters['maxtime'],
                             parameters['timesteps'],retstep=True) # time in fs 2050au = 50fs
         pbins = _Ionization.p_bins(parameters['pmax'],parameters['npbins'])
-        delays = np.linspace(-50,50,parameters['delaysteps'],endpoint=False)
+        delays = np.linspace(-25,25,parameters['delaysteps'],endpoint=False)
         return ADK_params, t, dt, pbins, delays
 
     def calculation(delay,nI,pbins,npbins,timesteps, laser_parameters):
@@ -339,22 +339,22 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w3w/testnewavg.h5',
+    simulation_parameters = {'savename': 'Results/w3w/testlongoverlap2.h5',
                             'Atom': 'Argon',
                             'timesteps': 10000,
                             'mintime': 2050,
-                            'maxtime': 4100,
+                            'maxtime': 2050,
                             'npbins': 50,
                             'pmax': 3,
-                            'delaysteps': 50,
+                            'delaysteps': 200,
                             'nI': 10}
 
     laser_parameters = {'Imax_red': 1.0E14,
-                        't_red(fs)': 30,
+                        't_red(fs)': 25,
                         'FWHM_red(um)': 23,
-                        'Imax_uv': 1.2E13,
-                        't_uv(fs)': 30,
-                        'FWHM_uv(um)': 16}
+                        'Imax_uv': 1.0E13,
+                        't_uv(fs)': 25,
+                        'FWHM_uv(um)': 23}
 
     ADK_params, t, dt, pbins, delays = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
@@ -365,7 +365,7 @@ if __name__ == '__main__':
                             pbins,
                             delays,
                             laser_parameters)
-    outputs, asymmetry = _Run.main( simulation_parameters['phisteps'],
+    outputs, asymmetry = _Run.main( simulation_parameters['delaysteps'],
                                     simulation_parameters['npbins'],
                                     simulation_parameters['timesteps'],
                                     simulation_parameters['nI'],

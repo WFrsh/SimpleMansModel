@@ -122,7 +122,7 @@ class _Ionization(object):
         pbins = np.linspace(-pmax,pmax,npbins+1)
         return pbins
 
-    def final_distribution_intensity_atoms(nI,pbins,npbins, phi,timesteps,laser_parameters):
+    def final_distribution_intensity_atoms(nI,pbins,npbins, delay,timesteps,laser_parameters):
         '''Calculate the momentum distribution
         input: Imax
                nI
@@ -147,12 +147,13 @@ class _Ionization(object):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
             # create the Intensity of the laser at that position
             Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # FWHM in um
-            Iuv_x = _Avg.gaussian(x[i],laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
+            Ib_x = _Avg.gaussian(x[i],laser_parameters['Imax_b'],laser_parameters['FWHM_b(um)'])
+            # Iuv_x = _Avg.gaussian(x[i],laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
             # create the pulse
             Er = _Pulse.pulse_au(t, 30, 800, Ir_x, 0, 0, 0)
-            # Eb = _Pulse.pulse_au(t, 30, 400, ratio*1E14, phi, 0, 0)
-            Euv = _Pulse.pulse_au(t, 30, 266, Iuv_x, phi, 0, 0)
-            Ecombined_i = Er + Euv
+            Eb = _Pulse.pulse_au(t, 30, 400, Ib_x, 0, delay, 0)
+            # Euv = _Pulse.pulse_au(t, 30, 266, Iuv_x, 0, delay, 0)
+            Ecombined_i = Er + Eb
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
@@ -220,17 +221,17 @@ class _Asymmetry(object):
         """a sine function for fitting the asymmetry"""
         return a*np.sin(2*np.pi/b*x + c)
 
-    def fit_asymmetry(dist, phisteps, npbins):
+    def fit_asymmetry(dist, delaysteps, npbins):
         """calculate the asymmetry for each phase and fit a sine function to it
             input:  dist:     final distribution of electron momenta
-                    phisteps: sampling phases
+                    delaysteps: sampling phases
                     npbins:   number of momentum bins"""
-        A = _Asymmetry.calculate_asymmetry(dist,phisteps, npbins)
+        A = _Asymmetry.calculate_asymmetry(dist,delaysteps, npbins)
         x = np.arange(A.shape[0])
-        popt, cov = curve_fit(_Asymmetry.sin_fct,x,A, p0=[1,phisteps,phisteps/4])
+        popt, cov = curve_fit(_Asymmetry.sin_fct,x,A, p0=[1,delaysteps,delaysteps/4])
         a, phase = popt[0], popt[2]
-        A_fitted = _Asymmetry.sin_fct(np.arange(phisteps), a, popt[1], phase)
-        phase = phase/phisteps
+        A_fitted = _Asymmetry.sin_fct(np.arange(delaysteps), a, popt[1], phase)
+        phase = phase/delaysteps
         return dist, A, A_fitted, a, phase
 
 class _Run(object):
@@ -243,34 +244,34 @@ class _Run(object):
                     t         : sampling times
                     dt        : timestep
                     pbins     : momentum bins
-                    phases    : sampling phases"""
+                    delays    : sampling delays"""
         Atom_params = { 'Argon': {'Cl': 2.44, 'I_p': 0.579, 'Z_c': 1, 'l': 1, 'alpha': 9},
                         'Neon':  {'Cl': 2.10, 'I_p': 0.793, 'Z_c': 1, 'l': 1, 'alpha': 9},
                         'Helium':{'Cl': 3.13, 'I_p': 0.904, 'Z_c': 1, 'l': 0, 'alpha': 7}}
         ADK_params = Atom_params[parameters['Atom']]
-        t, dt = np.linspace(-parameters['min/maxtime'],parameters['min/maxtime'],
+        t, dt = np.linspace(-parameters['mintime'],parameters['maxtime'],
                             parameters['timesteps'],retstep=True) # time in fs 2050au = 50fs
         pbins = _Ionization.p_bins(parameters['pmax'],parameters['npbins'])
-        phases = np.linspace(0,parameters['phimax'],parameters['phisteps'],endpoint=False)
-        return ADK_params, t, dt, pbins, phases
+        delays = np.linspace(-50,50,parameters['delaysteps'],endpoint=False)
+        return ADK_params, t, dt, pbins, delays
 
-    def calculation(phi,nI,pbins,npbins,timesteps, laser_parameters):
+    def calculation(delay,nI,pbins,npbins,timesteps, laser_parameters):
         """This is the calculation loop which runs in parallel on all cores
-            input:  phi:    current phase
+            input:  delay:    delay between the two pulses
                     nI:     number of intensities for focus average
                     pbins:  momentum bins
                     npbins: number of momentum bins
                     timesteps: sampling times
             output: results of the calculation"""
-        output = _Ionization.final_distribution_intensity_atoms(nI,pbins, npbins, phi,timesteps,laser_parameters)
+        output = _Ionization.final_distribution_intensity_atoms(nI,pbins, npbins, delay,timesteps,laser_parameters)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
         return output
 
-    def main(phisteps, npbins, timesteps, nI, pbins, laser_parameters):
+    def main(delaysteps, npbins, timesteps, nI, pbins, laser_parameters):
         """The main part of the program
-            input:  phisteps:   phases to calculate at
+            input:  delaysteps:   delays to calculate at
                     npbins:     number of momentum bins
                     timesteps:  sampling times
                     nI:         number of intensities for focus average
@@ -278,48 +279,48 @@ class _Run(object):
                     laser_parameters: parameters of the laser pulses
             output: outputs:    results of the calculations at each phase
                     asymmetry:  The fitted asymmetry"""
-        averaged_dist = np.zeros((phisteps,npbins))
-        E_fields = np.zeros((phisteps,timesteps))
+        averaged_dist = np.zeros((delaysteps,npbins))
+        E_fields = np.zeros((delaysteps,timesteps))
         inputs = (nI,pbins,npbins,timesteps,laser_parameters)
 
         num_cores = multiprocessing.cpu_count() # number of cores available
-        # return a list of the outputs for different phases
-        outputs = Parallel(n_jobs=num_cores)(delayed(_Run.calculation)(phi, *inputs) for phi in phases) # parallel
+        # return a list of the outputs for different delays
+        outputs = Parallel(n_jobs=num_cores)(delayed(_Run.calculation)(delay, *inputs) for delay in delays) # parallel
 
-        for i in range(phisteps):
+        for i in range(delaysteps):
             averaged_dist[i,:] = outputs[i][7]
             E_fields[i,:] = outputs[i][5]
 
-        asymmetry = _Asymmetry.fit_asymmetry(averaged_dist, phisteps, npbins)
-        asymmetry = asymmetry + (E_fields,)
+        #asymmetry = _Asymmetry.fit_asymmetry(averaged_dist, phisteps, npbins)
+        asymmetry = (averaged_dist,) + (E_fields,)
         return outputs, asymmetry
 
 class _Save(object):
     """docstring for _Save"""
 
-    def save_inits_hdf5(savefile,Atom,ADK_params,t,dt,pbins,phases,laser_parameters):
+    def save_inits_hdf5(savefile,Atom,ADK_params,t,dt,pbins,delays,laser_parameters):
         """save the initial variables for the simulation in an hdf5 file"""
         f = h5py.File(savefile, 'a') # create a hdf5 file object
         grp = f.create_group('variables')
-        names = ['Atom'] + list(ADK_params.keys()) + ['sampling times','timestep','momentum bins','phases']
-        variables = [Atom] + list(ADK_params.values()) + [t, dt, pbins, phases]
+        names = ['Atom'] + list(ADK_params.keys()) + ['sampling times','timestep','momentum bins','delays']
+        variables = [Atom] + list(ADK_params.values()) + [t, dt, pbins, delays]
         for i in zip(names,variables):
             dset = grp.create_dataset("{}".format(i[0]), data=i[1]) #create a dataset in the hdf5file
         for key, value in laser_parameters.items():
             dset = grp.create_dataset("{}".format(key), data=value)
         f.flush() # save to disk
 
-    def save_results_hdf5(savefile,outputs,phases):
+    def save_results_hdf5(savefile,outputs,delays):
         """save the results in an hdf5 file
             create a subgroup for each phi step"""
         f = h5py.File(savefile, 'a') # create a hdf5 file object
         names = ['distribution','intensities','N0p','N1p','rates','E-field','final momentum',
                  'focus averaged spectrum','focus averaged final momentum','phase in pi']
-        for i in range(len(phases)): # loop over all outputs for the different phases
-            phi = phases[i]
+        for i in range(len(delays)): # loop over all outputs for the different delays
+            delay = delays[i] # nameing of the groups
             results = outputs[i]
-            results = results + (phi,)
-            grp = f.create_group('phi={0:.3f}'.format(phi))
+            results = results + (delay,)
+            grp = f.create_group('delay={0:.3f}'.format(delay))
             for j in enumerate(results):
                 dset = grp.create_dataset("{}".format(names[j[0]]), data=j[1]) #create a dataset in the hdf5file
             f.flush() # save to disk
@@ -329,7 +330,7 @@ class _Save(object):
             create a subgroup for it"""
         f = h5py.File(savefile, 'a') # create a hdf5 file object
         grp = f.create_group('asymmetry')
-        names = ['Distribution', 'Asymmetry', 'fitted Asymmeetry', 'Asymmetry parameter', 'Asymmetry phase','E-fields']
+        names = ['Distribution', 'E-fields']
         for i in enumerate(results):
             dset = grp.create_dataset("{}".format(names[i[0]]), data=i[1]) #create a dataset in the hdf5file
         f.flush() # save to disk
@@ -339,33 +340,33 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w3w/longuvhighintensity.h5',
+    simulation_parameters = {'savename': 'Results/w2w/testoverlaplong.h5',
                             'Atom': 'Argon',
                             'timesteps': 10000,
-                            'min/maxtime': 2050,
+                            'mintime': 2050,
+                            'maxtime': 2050,
                             'npbins': 50,
                             'pmax': 3,
-                            'phisteps': 50,
-                            'phimax': 2,
+                            'delaysteps': 200,
                             'nI': 10}
 
-    laser_parameters = {'Imax_red': 1.0E15,
-                        't_red(fs)': 32,
+    laser_parameters = {'Imax_red': 1.0E14,
+                        't_red(fs)': 25,
                         'FWHM_red(um)': 23,
-                        'Imax_uv': 1.2E14,
-                        't_uv(fs)': 92,
-                        'FWHM_uv(um)': 16}
+                        'Imax_b': 1.0E13,
+                        't_b(fs)': 25,
+                        'FWHM_b(um)': 23}
 
-    ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
+    ADK_params, t, dt, pbins, delays = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
                             simulation_parameters['Atom'],
                             ADK_params,
                             t,
                             dt,
                             pbins,
-                            phases,
+                            delays,
                             laser_parameters)
-    outputs, asymmetry = _Run.main( simulation_parameters['phisteps'],
+    outputs, asymmetry = _Run.main( simulation_parameters['delaysteps'],
                                     simulation_parameters['npbins'],
                                     simulation_parameters['timesteps'],
                                     simulation_parameters['nI'],
@@ -373,5 +374,5 @@ if __name__ == '__main__':
                                     laser_parameters)
     _Save.save_results_hdf5(simulation_parameters['savename'],
                             outputs,
-                            phases)
+                            delays)
     _Save.save_asymmetry_hdf5(  simulation_parameters['savename'],asymmetry)
