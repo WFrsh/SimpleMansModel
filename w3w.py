@@ -122,7 +122,7 @@ class _Ionization(object):
         pbins = np.linspace(-pmax,pmax,npbins+1)
         return pbins
 
-    def final_distribution_intensity_atoms(Imax,nI,pbins,npbins, phi,timesteps):
+    def final_distribution_intensity_atoms(Imax,nI,pbins,npbins, phi,timesteps, laser_parameters):
         '''Calculate the momentum distribution
         input: Imax
                nI
@@ -130,6 +130,7 @@ class _Ionization(object):
                npbins
                phi
                timesteps
+               laser_parameters
         output: dist_i_3: momentum distribution [50]'''
         # initializing of all the arrays
         dist_i_3 = np.zeros([nI,npbins]) # momentum distributions
@@ -140,17 +141,18 @@ class _Ionization(object):
         N0p = np.ones((nI,tmax)) # neutrals
         N1p = np.zeros((nI,tmax)) # single ionized
 
-        Ir = np.linspace(0.001,Imax,nI) # intensities of the red beam
-        # ratio = np.linspace(0.01,1,nI) # decrease the ratio with increasing intensity
-        Iuv = 1*Ir # intensity of the uv beam
-        # loop over different peak intensity
+
+        # loop over different positions perpendicular to focus
+        x = np.linspace(0.001,50,nI) # 10 steps between 0 and 50um in the focus
         for i in range(nI):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
+            # create the Intensity of the laser at that position
+            Ir_x = _Avg.gaussian(x[i]-15,laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # offset by 15um
+            Iuv_x = _Avg.gaussian(x[i],laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
             # create the pulse
-            Er = _Pulse.pulse_au(t, 30, 800, 1E14, 0, 0, 0)
-            # Eb = _Pulse.pulse_au(t, 30, 400, ratio*1E14, phi, 0, 0)
-            Euv = _Pulse.pulse_au(t, 30, 266, 1.2*1E13, phi, 0, 0)
-            Ecombined_i = np.sqrt(Ir[-i-1])*Er + np.sqrt(Iuv[-i-1])*Euv
+            Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
+            Euv = _Pulse.pulse_au(t, laser_parameters['t_uv(fs)'], 266, Iuv_x, phi, 0, 0)
+            Ecombined_i = Er + Euv
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
@@ -264,7 +266,7 @@ class _Run(object):
         phases = np.linspace(0,parameters['phimax'],parameters['phisteps'],endpoint=False)
         return ADK_params, t, dt, pbins, phases
 
-    def calculation(phi,nI,pbins,npbins,timesteps):
+    def calculation(phi,nI,pbins,npbins,timesteps, laser_parameters):
         """This is the calculation loop which runs in parallel on all cores
             input:  phi:    current phase
                     nI:     number of intensities for focus average
@@ -272,24 +274,25 @@ class _Run(object):
                     npbins: number of momentum bins
                     timesteps: sampling times
             output: results of the calculation"""
-        output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps)
+        output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
         return output
 
-    def main(phisteps, npbins, timesteps, nI, pbins):
+    def main(phisteps, npbins, timesteps, nI, pbins, laser_parameters):
         """The main part of the program
             input:  phisteps:   phases to calculate at
                     npbins:     number of momentum bins
                     timesteps:  sampling times
                     nI:         number of intensities for focus average
                     pbins:      momentum bins
+                    laser_parameters: parameters of the laser pulses
             output: outputs:    results of the calculations at each phase
                     asymmetry:  The fitted asymmetry"""
         averaged_dist = np.zeros((phisteps,npbins))
         E_fields = np.zeros((phisteps,timesteps))
-        inputs = (nI,pbins,npbins,timesteps)
+        inputs = (nI,pbins,npbins,timesteps, laser_parameters)
 
         num_cores = multiprocessing.cpu_count() # number of cores available
         # return a list of the outputs for different phases
@@ -306,7 +309,7 @@ class _Run(object):
 class _Save(object):
     """docstring for _Save"""
 
-    def save_inits_hdf5(savefile,Atom,ADK_params,t,dt,pbins,phases):
+    def save_inits_hdf5(savefile,Atom,ADK_params,t,dt,pbins,phases,laser_parameters):
         """save the initial variables for the simulation in an hdf5 file"""
         f = h5py.File(savefile, 'a') # create a hdf5 file object
         grp = f.create_group('variables')
@@ -314,6 +317,8 @@ class _Save(object):
         variables = [Atom] + list(ADK_params.values()) + [t, dt, pbins, phases]
         for i in zip(names,variables):
             dset = grp.create_dataset("{}".format(i[0]), data=i[1]) #create a dataset in the hdf5file
+        for key, value in laser_parameters.items():
+            dset = grp.create_dataset("{}".format(key), data=value)
         f.flush() # save to disk
 
     def save_results_hdf5(savefile,outputs,phases):
@@ -346,16 +351,23 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w3w/testoldavg.h5',
+    simulation_parameters = {'savename': 'Results/w3w/20170315Neon100pbinsRealPulsesOffset.h5',
+                            'Atom': 'Neon',
                             'timesteps': 10000,
                             'min/maxtime': 2050,
-                            'npbins': 50,
+                            'npbins': 100,
                             'pmax': 3,
                             'phisteps': 50,
                             'phimax': 2,
-                            'nI': 10,
-                            'Atom': 'Argon'}
+                            'nI': 10}
 
+    laser_parameters = {'Imax_red': 6.6E13,
+                        't_red(fs)': 59,
+                        'FWHM_red(um)': 35,
+                        'Imax_uv': 1.7E13,
+                        't_uv(fs)': 40,
+                        'FWHM_uv(um)': 35}
+                        
     ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
                             simulation_parameters['Atom'],
@@ -363,12 +375,14 @@ if __name__ == '__main__':
                             t,
                             dt,
                             pbins,
-                            phases)
+                            phases,
+                            laser_parameters)
     outputs, asymmetry = _Run.main( simulation_parameters['phisteps'],
                                     simulation_parameters['npbins'],
                                     simulation_parameters['timesteps'],
                                     simulation_parameters['nI'],
-                                    pbins)
+                                    pbins,
+                                    laser_parameters)
     _Save.save_results_hdf5(simulation_parameters['savename'],
                             outputs,
                             phases)
