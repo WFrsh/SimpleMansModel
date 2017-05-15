@@ -122,7 +122,7 @@ class _Ionization(object):
         pbins = np.linspace(-pmax,pmax,npbins+1)
         return pbins
 
-    def final_distribution_intensity_atoms(nI,pbins,npbins, phi,timesteps,laser_parameters):
+    def final_distribution_intensity_atoms(Imax,nI,pbins,npbins, phi,timesteps, laser_parameters):
         '''Calculate the momentum distribution
         input: Imax
                nI
@@ -141,18 +141,15 @@ class _Ionization(object):
         N0p = np.ones((nI,tmax)) # neutrals
         N1p = np.zeros((nI,tmax)) # single ionized
 
+
         # loop over different positions perpendicular to focus
-        x = np.linspace(0.001,50,nI) # 10 steps between 0 and 50um in the focus
-        for i in range(nI):
+        for i in range(1):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
             # create the Intensity of the laser at that position
-            Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # FWHM in um
-            Iuv_x = _Avg.gaussian(x[i],laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
+            Ir_x = laser_parameters['Imax_red'] # FWHM in um
             # create the pulse
-            Er = _Pulse.pulse_au(t, 30, 800, Ir_x, 0, 0, 0)
-            # Eb = _Pulse.pulse_au(t, 30, 400, ratio*1E14, phi, 0, 0)
-            Euv = _Pulse.pulse_au(t, 30, 266, Iuv_x, phi, 0, 0)
-            Ecombined_i = Er + Euv
+            Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
+            Ecombined_i = Er
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
@@ -177,7 +174,7 @@ class _Ionization(object):
 
             # get the momentum histogram
             # weighted with the rate and the number of atoms
-            dist_i_3[i,:] = np.histogram(p_SMM_t_i,bins=pbins,weights=rate*N0p[i,:])[0]
+            dist_i_3[i,:] = np.histogram(p_SMM_t_i,bins=pbins)[0] # weights=rate*N0p[i,:]
 
         return dist_i_3, intensities, N0p, N1p, R, Ecombined_i, p_final
 
@@ -192,11 +189,23 @@ class _Avg(object):
             input:  distribution:   calculated momentum distribution [nI,nbins]
             output: S_avg:   focus averaged spectrum [nbins]"""
         nI = distribution.shape[0]
-        x = np.linspace(0.001,50,nI)
+        I_disc, dI = np.linspace(0.001,1,nI,retstep=True)
+
+        x_I = np.zeros(nI)
+        # create a gaussian
+        x = np.linspace(-4,4,10000)
+        gauss = _Avg.gaussian(x,1,1) # create a gaussian
+        # calculate the volume where the intensity is within a certain intensity interval
+        for i in range(nI):
+            x_i = np.argmax(gauss >= I_disc[i]) # get the x value where the intensity is at I_i
+            x_I[i] = x[x_i]
+        x_I[-1] = 0 # Volume of max intensity is zero
+        # calculate the gradient as a weight for the focus averaging
+        dVdI = np.gradient(x_I**2)
 
         S_avg = 0.
         for i in range(nI):
-            S_i = np.pi*x[i]**2*distribution[i] # area at that circle
+            S_i = np.abs(dVdI[i])*distribution[-i-1]*dI
             S_avg += S_i
 
         return S_avg
@@ -225,13 +234,7 @@ class _Asymmetry(object):
             input:  dist:     final distribution of electron momenta
                     phisteps: sampling phases
                     npbins:   number of momentum bins"""
-        A = _Asymmetry.calculate_asymmetry(dist,phisteps, npbins)
-        x = np.arange(A.shape[0])
-        popt, cov = curve_fit(_Asymmetry.sin_fct,x,A, p0=[1,phisteps,phisteps/4])
-        a, phase = popt[0], popt[2]
-        A_fitted = _Asymmetry.sin_fct(np.arange(phisteps), a, popt[1], phase)
-        phase = phase/phisteps
-        return dist, A, A_fitted, a, phase
+        return dist
 
 class _Run(object):
     """docstring for _Run"""
@@ -251,7 +254,7 @@ class _Run(object):
         t, dt = np.linspace(-parameters['min/maxtime'],parameters['min/maxtime'],
                             parameters['timesteps'],retstep=True) # time in fs 2050au = 50fs
         pbins = _Ionization.p_bins(parameters['pmax'],parameters['npbins'])
-        phases = np.linspace(0,parameters['phimax'],parameters['phisteps'],endpoint=False)
+        phases = [0]
         return ADK_params, t, dt, pbins, phases
 
     def calculation(phi,nI,pbins,npbins,timesteps, laser_parameters):
@@ -262,7 +265,7 @@ class _Run(object):
                     npbins: number of momentum bins
                     timesteps: sampling times
             output: results of the calculation"""
-        output = _Ionization.final_distribution_intensity_atoms(nI,pbins, npbins, phi,timesteps,laser_parameters)
+        output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
@@ -280,7 +283,7 @@ class _Run(object):
                     asymmetry:  The fitted asymmetry"""
         averaged_dist = np.zeros((phisteps,npbins))
         E_fields = np.zeros((phisteps,timesteps))
-        inputs = (nI,pbins,npbins,timesteps,laser_parameters)
+        inputs = (nI,pbins,npbins,timesteps, laser_parameters)
 
         num_cores = multiprocessing.cpu_count() # number of cores available
         # return a list of the outputs for different phases
@@ -291,7 +294,6 @@ class _Run(object):
             E_fields[i,:] = outputs[i][5]
 
         asymmetry = _Asymmetry.fit_asymmetry(averaged_dist, phisteps, npbins)
-        asymmetry = asymmetry + (E_fields,)
         return outputs, asymmetry
 
 class _Save(object):
@@ -329,7 +331,7 @@ class _Save(object):
             create a subgroup for it"""
         f = h5py.File(savefile, 'a') # create a hdf5 file object
         grp = f.create_group('asymmetry')
-        names = ['Distribution', 'Asymmetry', 'fitted Asymmeetry', 'Asymmetry parameter', 'Asymmetry phase','E-fields']
+        names = ['Distribution', 'Asymmetry', 'fitted Asymmeetry', 'Asymmetry parameter', 'Asymmetry phase']
         for i in enumerate(results):
             dset = grp.create_dataset("{}".format(names[i[0]]), data=i[1]) #create a dataset in the hdf5file
         f.flush() # save to disk
@@ -339,23 +341,21 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w3w/testsambit.h5',
-                            'Atom': 'Argon',
-                            'timesteps': 10000,
-                            'min/maxtime': 2050,
-                            'npbins': 50,
-                            'pmax': 3,
-                            'phisteps': 50,
+    simulation_parameters = {'savename': 'Results/red/noADK.h5',
+                            'Atom': 'Neon',
+                            'timesteps': 50000,
+                            'min/maxtime': 5000,
+                            'npbins': 100,
+                            'pmax': 1,
+                            'phisteps': 1,
                             'phimax': 2,
                             'nI': 10}
 
-    laser_parameters = {'Imax_red': 1.0E15,
-                        't_red(fs)': 32,
-                        'FWHM_red(um)': 23,
-                        'Imax_uv': 1.2E14,
-                        't_uv(fs)': 92,
-                        'FWHM_uv(um)': 16}
-
+    laser_parameters = {'Imax_red': 6.6E13,
+                        't_red(fs)': 59,
+                        'FWHM_red(um)': 35}
+                        # Ired  6.6E13
+                        # Iuv 1.7E13
     ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
                             simulation_parameters['Atom'],
@@ -374,4 +374,4 @@ if __name__ == '__main__':
     _Save.save_results_hdf5(simulation_parameters['savename'],
                             outputs,
                             phases)
-    _Save.save_asymmetry_hdf5(  simulation_parameters['savename'],asymmetry)
+    _Save.save_asymmetry_hdf5(simulation_parameters['savename'],asymmetry)

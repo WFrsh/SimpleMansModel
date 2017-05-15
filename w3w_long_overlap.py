@@ -251,7 +251,7 @@ class _Run(object):
         t, dt = np.linspace(-parameters['mintime'],parameters['maxtime'],
                             parameters['timesteps'],retstep=True) # time in fs 2050au = 50fs
         pbins = _Ionization.p_bins(parameters['pmax'],parameters['npbins'])
-        delays = np.linspace(-25,25,parameters['delaysteps'],endpoint=False)
+        delays = np.linspace(-50,50,parameters['delaysteps'],endpoint=False)
         return ADK_params, t, dt, pbins, delays
 
     def calculation(delay,nI,pbins,npbins,timesteps, laser_parameters):
@@ -339,7 +339,7 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w3w/testlongoverlap2.h5',
+    simulation_parameters = {'savename': 'Results/w3w/testlongoverlap3.h5',
                             'Atom': 'Argon',
                             'timesteps': 10000,
                             'mintime': 2050,
@@ -350,10 +350,10 @@ if __name__ == '__main__':
                             'nI': 10}
 
     laser_parameters = {'Imax_red': 1.0E14,
-                        't_red(fs)': 25,
+                        't_red(fs)': 59,
                         'FWHM_red(um)': 23,
                         'Imax_uv': 1.0E13,
-                        't_uv(fs)': 25,
+                        't_uv(fs)': 40,
                         'FWHM_uv(um)': 23}
 
     ADK_params, t, dt, pbins, delays = _Run.init_params(simulation_parameters)
