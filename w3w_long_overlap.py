@@ -233,7 +233,7 @@ class _Asymmetry(object):
         phase = phase/delaysteps
         return dist, A, A_fitted, a, phase
 
-class _Run(object):
+s       class _Run(object):
     """docstring for _Run"""
 
     def init_params(parameters):

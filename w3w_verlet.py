@@ -6,6 +6,7 @@ from scipy.optimize import curve_fit
 import h5py
 from joblib import Parallel, delayed
 import multiprocessing
+from numba import jit
 
 
 class _Pulse(object):
@@ -110,9 +111,40 @@ class _Ionization(object):
                t0: birth time
                t1: final time
                v0: initial velocity'''
-        t0 = np.where(t == t0)[0][0]
-        t1 = np.where(t == t1)[0][0]
         p_t = e*integrate.trapz(E[t0:t1],t[t0:t1])
+        return p_t
+
+    @jit # numba speeds it up immensly. Total lifesaver!
+    def p_verlet(E,t0,t1,dt):
+        '''velocity verlet algorithm
+        input:  E   : electric field
+                t0  : start of integration
+                t1  : end of integration
+                dt  : time step
+        output: p_t   : final momentum'''
+        x_t = 0 # init position
+        v_t = 0 # init velocity
+        for i in range(t0,t1):
+            # velocity verlet integration
+            x_t = x_t + dt*v_t + dt*dt/2/m*e*E[i]
+            v_t = v_t + dt/2/m*e*(E[i+1] + E[i])
+            # check weather electron exits in the positive or negative direction
+            if i == t0:
+                if x_t > 0:
+                    x_positive = True
+                else:
+                    x_positive = False
+            # rescattering for positive positions
+            if x_positive == True:
+                if x_t < 0:
+                    v_t = -v_t
+            # rescattering for negative positions
+            elif x_positive == False:
+                if x_t > 0:
+                    v_t = -v_t
+            else:
+                print('catch')
+        p_t = m*v_t
         return p_t
 
     def p_bins(pmax,npbins):
@@ -147,13 +179,12 @@ class _Ionization(object):
         for i in range(nI):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
             # create the Intensity of the laser at that position
-            Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # FWHM in um
-            Ib_x = _Avg.gaussian(x[i],laser_parameters['Imax_blue'],laser_parameters['FWHM_blue(um)'])
+            Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # offset by 15um
+            Iuv_x = _Avg.gaussian(x[i],laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
             # create the pulse
             Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
-            Eb = _Pulse.pulse_au(t, laser_parameters['t_blue(fs)'], 400, Ib_x, phi, 0, 0)
-            # Euv = _Pulse.pulse_au(t, 30, 266, 1.2*1E13, phi, 0, 0)
-            Ecombined_i = Er + Eb
+            Euv = _Pulse.pulse_au(t, laser_parameters['t_uv(fs)'], 266, Iuv_x, phi, 0, 0)
+            Ecombined_i = Er + Euv
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
@@ -170,10 +201,10 @@ class _Ionization(object):
                     N1p[i,j+1] = 1-N0p[i,j+1] # change population of ionized atoms
 
             # calculate the final positions
-            p_SMM_t_i = []
-            for t0 in t[:tmax]:
-                p = _Ionization.p_SMM(E=Ecombined_i, t0=t0, t1=t[-1])
-                p_SMM_t_i.append(p)
+            p_SMM_t_i = np.zeros(tmax)
+            for t0 in range(tmax):
+                # p = _Ionization.p_SMM(E=Ecombined_i, t0=t0, t1=tmax-1)
+                p_SMM_t_i[t0] = _Ionization.p_verlet(Ecombined_i,t0,tmax-1,dt)
             p_final[i,:] = p_SMM_t_i
 
             # get the momentum histogram
@@ -275,6 +306,7 @@ class _Run(object):
                     npbins: number of momentum bins
                     timesteps: sampling times
             output: results of the calculation"""
+        print(phi)
         output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
@@ -352,24 +384,23 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w2w/20170515Neon2.h5',
+    simulation_parameters = {'savename': 'Results/w3w/verlet_test_2.h5',
                             'Atom': 'Neon',
-                            'timesteps': 20000,
+                            'timesteps': 10000,
                             'min/maxtime': 2050,
-                            'npbins': 50,#100
-                            'pmax': 1,#3
+                            'npbins': 50,
+                            'pmax': 3,
                             'phisteps': 50,
                             'phimax': 2,
                             'nI': 10}
 
-    laser_parameters = {'Imax_red': 3E13,#6.17E13
+    laser_parameters = {'Imax_red': 1.17E14,
                         't_red(fs)': 35,
                         'FWHM_red(um)': 40,
-                        'Imax_blue': 2E13,#4.78E13
-                        't_blue(fs)': 52,
-                        'FWHM_blue(um)': 31}
-                        #Ired 4.6E13
-                        #Iblue 2.2E13
+                        'Imax_uv': 1.85E13,
+                        't_uv(fs)': 40,
+                        'FWHM_uv(um)': 35}
+
     ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
                             simulation_parameters['Atom'],

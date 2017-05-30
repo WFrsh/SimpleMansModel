@@ -147,7 +147,7 @@ class _Ionization(object):
         for i in range(nI):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
             # create the Intensity of the laser at that position
-            Ir_x = _Avg.gaussian(x[i]-15,laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # offset by 15um
+            Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # offset by 15um
             Iuv_x = _Avg.gaussian(x[i],laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
             # create the pulse
             Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
@@ -351,23 +351,23 @@ if __name__ == '__main__':
     e = -1 # charge in au
     m = 1 # mass in au
 
-    simulation_parameters = {'savename': 'Results/w3w/20170315Neon100pbinsRealPulsesOffset.h5',
+    simulation_parameters = {'savename': 'Results/w3w/20170518Neon.h5',
                             'Atom': 'Neon',
                             'timesteps': 10000,
                             'min/maxtime': 2050,
-                            'npbins': 100,
-                            'pmax': 3,
+                            'npbins': 50,
+                            'pmax': 1,
                             'phisteps': 50,
                             'phimax': 2,
                             'nI': 10}
 
-    laser_parameters = {'Imax_red': 6.6E13,
-                        't_red(fs)': 59,
-                        'FWHM_red(um)': 35,
-                        'Imax_uv': 1.7E13,
+    laser_parameters = {'Imax_red': 1.17E14,
+                        't_red(fs)': 35,
+                        'FWHM_red(um)': 40,
+                        'Imax_uv': 1.85E13,
                         't_uv(fs)': 40,
                         'FWHM_uv(um)': 35}
-                        
+
     ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
                             simulation_parameters['Atom'],
