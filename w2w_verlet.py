@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 import multiprocessing
 from numba import jit
 
+np.random.seed(seed=10051990)
 
 class _Pulse(object):
     """Class for generation of pulses"""
@@ -38,7 +39,6 @@ class _Pulse(object):
                     wavelength: wavelength of pulse in nm
                     intensity: intensity in W/cm^2
                     CEP:    CEP in pi
-                    b: temporal offset in fs
             output: array of electric field shape of the pulse
                   """
         # calculate the proper output parameters from the input parameters
@@ -156,7 +156,7 @@ class _Ionization(object):
         pbins = np.linspace(-pmax,pmax,npbins+1)
         return pbins
 
-    def final_distribution_intensity_atoms(Imax,nI,pbins,npbins, phi,timesteps, laser_parameters):
+    def final_distribution_intensity_atoms(Imax,nI,pbins,npbins, phi,timesteps, laser_parameters, ADK_params):
         '''Calculate the momentum distribution
         input: Imax
                nI
@@ -165,6 +165,7 @@ class _Ionization(object):
                phi
                timesteps
                laser_parameters
+               ADK_params
         output: dist_i_3: momentum distribution [50]'''
         # initializing of all the arrays
         dist_i_3 = np.zeros([nI,npbins]) # momentum distributions
@@ -177,20 +178,21 @@ class _Ionization(object):
 
 
         # loop over different positions perpendicular to focus
-        x = np.linspace(0.001,150,nI) # 10 steps between 0 and 50um in the focus
+        x = np.linspace(0.001,50,nI) # 10 steps between 0 and 50um in the focus
         for i in range(nI):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
             # create the Intensity of the laser at that position
             Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # offset by 15um
-            Iuv_x = _Avg.gaussian(x[i]+0,laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
+            Ib_x = _Avg.gaussian(x[i],laser_parameters['Imax_blue'],laser_parameters['FWHM_blue(um)'])
             # create the pulse
-            Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, -50, 0)
-            Euv = _Pulse.pulse_au(t, laser_parameters['t_uv(fs)'], 266, Iuv_x, phi, 50, 0)
-            Ecombined_i = Er + Euv
+            Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
+            Eb = _Pulse.pulse_au(t, laser_parameters['t_blue(fs)'], 400, Ib_x, phi, 0, 0)
+            Ecombined_i = Er + Eb
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
-            rate = _Ionization.ADK(2.19, 0.579, 1., Ecombined_i, 1, 9.)*dt # constants for the ionization of Argon
+            rate = _Ionization.ADK(ADK_params['Cl'], ADK_params['I_p'], ADK_params['Z_c'], Ecombined_i,
+                                    ADK_params['l'], ADK_params['alpha'])*dt # constants for the ionization of Argon
             R[i,:] = rate
 
             # calculate the number of atoms remaining based on the rate
@@ -236,17 +238,15 @@ class _Avg(object):
         for i in range(nI):
             x_i = np.argmax(gauss >= I_disc[i]) # get the x value where the intensity is at I_i
             x_I[i] = x[x_i]
-        if nI > 1:
-            x_I[-1] = 0 # Volume of max intensity is zero
+        x_I[-1] = 0 # Volume of max intensity is zero
         # calculate the gradient as a weight for the focus averaging
-            dVdI = np.gradient(x_I**2)
+        dVdI = np.gradient(x_I**2)
 
-            S_avg = 0.
-            for i in range(nI):
-                S_i = np.abs(dVdI[i])*distribution[-i-1]*dI
-                S_avg += S_i
-        else:
-            S_avg = distribution
+        S_avg = 0.
+        for i in range(nI):
+            S_i = np.abs(dVdI[i])*distribution[-i-1]*dI
+            S_avg += S_i
+
         return S_avg
 
 class _Asymmetry(object):
@@ -302,7 +302,7 @@ class _Run(object):
         phases = np.linspace(0,parameters['phimax'],parameters['phisteps'],endpoint=False)
         return ADK_params, t, dt, pbins, phases
 
-    def calculation(phi,nI,pbins,npbins,timesteps, laser_parameters):
+    def calculation(phi,nI,pbins,npbins,timesteps, laser_parameters, ADK_params):
         """This is the calculation loop which runs in parallel on all cores
             input:  phi:    current phase
                     nI:     number of intensities for focus average
@@ -311,13 +311,13 @@ class _Run(object):
                     timesteps: sampling times
             output: results of the calculation"""
         print(phi)
-        output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters)
+        output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters, ADK_params)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
         return output
 
-    def main(phisteps, npbins, timesteps, nI, pbins, laser_parameters):
+    def main(phisteps, npbins, timesteps, nI, pbins, laser_parameters, ADK_params):
         """The main part of the program
             input:  phisteps:   phases to calculate at
                     npbins:     number of momentum bins
@@ -329,7 +329,7 @@ class _Run(object):
                     asymmetry:  The fitted asymmetry"""
         averaged_dist = np.zeros((phisteps,npbins))
         E_fields = np.zeros((phisteps,timesteps))
-        inputs = (nI,pbins,npbins,timesteps, laser_parameters)
+        inputs = (nI,pbins,npbins,timesteps, laser_parameters, ADK_params)
 
         num_cores = multiprocessing.cpu_count() # number of cores available
         # return a list of the outputs for different phases
@@ -389,22 +389,22 @@ if __name__ == '__main__':
     m = 1 # mass in au
     rescatter_prob = 0
 
-    simulation_parameters = {'savename': 'Results/w3w/verlet_100fs_offset.h5',
+    simulation_parameters = {'savename': 'Results/w2w/verlet_test_3.h5',
                             'Atom': 'Neon',
-                            'timesteps': 30000,
-                            'min/maxtime': 6150,
+                            'timesteps': 10000,
+                            'min/maxtime': 2050,
                             'npbins': 50,
                             'pmax': 3,
                             'phisteps': 50,
                             'phimax': 2,
                             'nI': 10}
 
-    laser_parameters = {'Imax_red': 1.17E14,
+    laser_parameters = {'Imax_red': 6.17E13,
                         't_red(fs)': 35,
                         'FWHM_red(um)': 40,
-                        'Imax_uv': 1.85E13,
-                        't_uv(fs)': 40,
-                        'FWHM_uv(um)': 35}
+                        'Imax_blue': 4.7E13,
+                        't_blue(fs)': 52,
+                        'FWHM_blue(um)': 35}
 
     ADK_params, t, dt, pbins, phases = _Run.init_params(simulation_parameters)
     _Save.save_inits_hdf5(  simulation_parameters['savename'],
@@ -420,7 +420,8 @@ if __name__ == '__main__':
                                     simulation_parameters['timesteps'],
                                     simulation_parameters['nI'],
                                     pbins,
-                                    laser_parameters)
+                                    laser_parameters,
+                                    ADK_params)
     _Save.save_results_hdf5(simulation_parameters['savename'],
                             outputs,
                             phases)

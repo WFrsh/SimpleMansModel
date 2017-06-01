@@ -79,6 +79,12 @@ class _Pulse(object):
         Ib = (20E-6)/(tau*np.pi*(rb*10**-6)**2)/10000
         return Ir,Ib
 
+class _Avg(object):
+    """docstring for _Avg"""
+
+    def gaussian(x,I,sigma):
+        return I*np.exp(-x**2/sigma**2)
+
 def ADK(Cl, I_p, Z_c, F, l, alpha):
     """ ADK rate for ionization adapted from eq (2) of Tong et Lin, 2005, Journal of Physics B, 38, 15, 2593-2600
         with the normalization factor for noble gases as explained in Zhao et Brabec, 2006, arXiv:physics/0605049v1
@@ -104,6 +110,16 @@ def ADK(Cl, I_p, Z_c, F, l, alpha):
         w_ADK += first_term*second_term*third_term*fourth_term*fifth_term*sixth_term
     w_ADK = w_ADK/(2*l+1)
     return w_ADK
+
+def number_of_atoms(timesteps,rate):
+    N0p = np.ones(timesteps) # number neutral atoms
+    # calculate the number of atoms remaining based on the rate
+    for j in range(timesteps-1):
+        if N0p[j] < 1e-5: # check if occupation is already zero (does some crazy shit otherwise)
+            N0p[j+1] = 0 # keep it zero
+        else:  # otherwise, do something
+            N0p[j+1] = N0p[j] - N0p[j]*rate[j]# *dt # change population of neutral atoms
+    return N0p
 
 @jit # numba speeds it up immensly. Total lifesaver!
 def p_verlet(E,t0,t1,dt,rescatter_prob):
@@ -150,58 +166,82 @@ def p_SMM(E,t0,t1):
     p_t = e*integrate.trapz(E[t0:t1],t[t0:t1])
     return p_t
 
-m = 1
-e = -1
-timesteps = 10000
-rescatter_prob = 1
-t, dt = np.linspace(-2050,2050,timesteps,retstep=True) # time in fs 2050au = 50fs
+def plot_(axes, phi,t,Ecombined_i,rate_0pi,p_final_0pi,N0p):
+    '''just a funtion to plot it'''
+    axes.plot(t,Ecombined_i,'b',lw=2)
+    axes.fill(t,rate_0pi/np.max(rate_0pi)*0.05*np.sign(p_final_0pi),'k',alpha=.2)
+    axes.set_title(r'{0}$\pi$'.format(phi), y=1.05)
+    axes.set_xlabel('time/a.u.')
+    axes.set_ylabel('electric field/a.u.(blue)')
+    axes.set_xlim(-110,110)
+    ax2 = plt.twinx(axes)
+    # ax2.plot(t,p_final_SMM,'g')
+    ax2.plot(t,p_final_0pi,'r')
+    ax2.set_xlim(-110,110)
+    ax2.set_ylabel('final momentum/a.u.(red)')
+    ax3 = plt.twiny(ax2)
+    plt.hist(p_final_0pi, bins=50, weights=rate_0pi*N0p, color='r', alpha=.5, label='0pi',
+                            orientation='horizontal', fill=True, histtype='bar') #
+    ax3.invert_xaxis()
+    ax3.set_xlim(0.01,0)
 
-# create the pulse
-Er = _Pulse.pulse_au(t, 35, 800, 1.17E14, 0, 0, 0)
-Euv = _Pulse.pulse_au(t, 40, 266, 1.85E13, 1.8, 0, 0)
-Ecombined_i = Er + Euv
-rate_0pi = ADK(2.44, 0.579, 1., Ecombined_i, 1, 9.)*dt #Argon
+def simulate_(phi,t,Ir,Iuv,x_uv):
+    '''just a function to simulate it'''
+    # create the pulse
+    Ir_x = _Avg.gaussian(0,Ir,40)
+    Iuv_x = _Avg.gaussian(x_uv,Iuv,35)
+    Er = _Pulse.pulse_au(t, 35, 800, Ir_x, 0, 0, 0)
+    Euv = _Pulse.pulse_au(t, 40, 266, Iuv_x, phi, 0, 0)
+    Ecombined_i = Er + Euv
+    rate_0pi = ADK(2.44, 0.579, 1., Ecombined_i, 1, 9.)*dt #Argon
+    N0p = number_of_atoms(timesteps,rate_0pi)
 
-p_final_0pi = np.zeros((timesteps))
-# for phi in range(phisteps):
-for i in range(timesteps):
-    print(i)
-    p_final_0pi[i] = p_verlet(Ecombined_i,i,timesteps-1,dt,rescatter_prob)
-    # p_final_0pi[i] = p_SMM(Ecombined_i,i,timesteps-1)
+    p_final_0pi = np.zeros((timesteps))
+    for i in range(timesteps):
+        if i % 100 == 0:
+            print(i)
+        p_final_0pi[i] = p_verlet(Ecombined_i,i,timesteps-1,dt,rescatter_prob)
+        # p_final_0pi[i] = p_SMM(Ecombined_i,i,timesteps-1)
+    return Ecombined_i, rate_0pi, p_final_0pi, N0p
+
+m = 1836*20
+e = +1
+timesteps = 20000
+rescatter_prob = 0
+t, dt = np.linspace(-4100,4100,timesteps,retstep=True) # time in fs 2050au = 50fs
+phases = np.linspace(0,2,6,endpoint=False)
 
 # p_t, x_ = p_verlet(Ecombined_i,500,timesteps,dt)
 # plt.plot(t,x_)
 
-# 1 Up = 0.218 a.u. (800nm, 1E14W/cm2)
-E_final_0pi = p_final_0pi*p_final_0pi/2
+Ecombined_i, rate_0pi, p_final_0pi, N0p = simulate_(1,t,Ir=1.17E14, Iuv=1.85E13, x_uv=0)
+Ecombined_i, rate_50pi, p_final_50pi, N50p = simulate_(1,t,Ir=1.17E14, Iuv=1.85E13, x_uv=50)
+
+plt.figure()
+plt.plot(t,Ecombined_i)
 
 # # 1 Up = 0.218 a.u. (800nm, 1E14W/cm2)
 # E_final = p_final_0pi*p_final_0pi/2
-# # plt.plot(t, E_final, '+')
+# plt.figure()
 # hist = np.histogram(E_final, bins=50)
 # plt.semilogy(hist[1][:-1], hist[0])
 # plt.xlabel('Energy/a.u.')
 # plt.ylabel('yield/arb.units')
 
-ax1 = plt.axes()
-ax1.plot(t,Ecombined_i,'b',lw=2)
-plt.xlabel('time/a.u.')
-plt.ylabel('electric field/a.u.(blue)')
-ax1.set_xlim(-110,110)
-ax2 = plt.twinx(ax1)
-# ax2.plot(t,p_final_SMM,'g')
-ax2.plot(t,p_final_0pi,'r')
-ax2.set_xlim(-110,110)
-plt.ylabel('final momentum/a.u.(red)')
-ax3 = plt.twiny(ax2)
-plt.hist(p_final_0pi, bins=50, weights=rate_0pi, color='r', alpha=.5, label='0pi',
-                        orientation='horizontal', fill=True, histtype='bar') #
-ax3.invert_xaxis()
-ax3.set_xlim(0.02,0)
-
 # histogram of the two distributions
-# plt.figure()
-# plt.hist(p_final_0pi, bins=50, weights=rate_0pi, alpha=.5, label='0pi', orientation='horizontal', fill=False, histtype='step') #
+plt.figure()
+plt.hist(p_final_0pi, bins=50, weights=rate_0pi*N0p, alpha=.5, label='0pi', orientation='horizontal', fill=False, histtype='step') #
+plt.hist(p_final_50pi, bins=50, weights=rate_50pi*N50p, alpha=.5, label='0pi', orientation='horizontal', fill=False, histtype='step') #
 # plt.legend()
+
+# plot multiple axes in one figure
+# fig, axs = plt.subplots(2,3)
+# fig.subplots_adjust(hspace = .5, wspace=.5)
+# axs = axs.ravel()
+#
+# for i in range(6):
+#     print(phases[i])
+#     Ecombined_i, rate_0pi, p_final_0pi, N0p = simulate_(phases[i],t)
+#     plot_(axs[i],phases[i],t,Ecombined_i,rate_0pi,p_final_0pi,N0p)
 
 plt.show()
