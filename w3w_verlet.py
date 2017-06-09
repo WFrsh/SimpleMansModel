@@ -177,15 +177,15 @@ class _Ionization(object):
 
 
         # loop over different positions perpendicular to focus
-        x = np.linspace(0.001,150,nI) # 10 steps between 0 and 50um in the focus
+        x = np.linspace(0.001,100,nI) # 10 steps between 0 and 50um in the focus
         for i in range(nI):
             # print('{0} of {1} and phi={2:.3f} of max 2 at ratio {3}'.format(i+1,nI,phi, ratio))
             # create the Intensity of the laser at that position
             Ir_x = _Avg.gaussian(x[i],laser_parameters['Imax_red'],laser_parameters['FWHM_red(um)']) # offset by 15um
             Iuv_x = _Avg.gaussian(x[i]+0,laser_parameters['Imax_uv'],laser_parameters['FWHM_uv(um)'])
             # create the pulse
-            Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, -50, 0)
-            Euv = _Pulse.pulse_au(t, laser_parameters['t_uv(fs)'], 266, Iuv_x, phi, 50, 0)
+            Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
+            Euv = _Pulse.pulse_au(t, laser_parameters['t_uv(fs)'], 266, Iuv_x, phi, 0, 0)
             Ecombined_i = Er + Euv
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
@@ -275,11 +275,12 @@ class _Asymmetry(object):
                     npbins:   number of momentum bins"""
         A = _Asymmetry.calculate_asymmetry(dist,phisteps, npbins)
         x = np.arange(A.shape[0])
-        popt, cov = curve_fit(_Asymmetry.sin_fct,x,A, p0=[1,phisteps,phisteps/4])
-        a, phase = popt[0], popt[2]
-        A_fitted = _Asymmetry.sin_fct(np.arange(phisteps), a, popt[1], phase)
-        phase = phase/phisteps
-        return dist, A, A_fitted, a, phase
+        # popt, cov = curve_fit(_Asymmetry.sin_fct,x,A, p0=[1,phisteps,phisteps/4])
+        # a, phase = popt[0], popt[2]
+        # A_fitted = _Asymmetry.sin_fct(np.arange(phisteps), a, popt[1], phase)
+        # phase = phase/phisteps
+        # return dist, A, A_fitted, a, phase
+        return dist, A, A, 1, 0 # dummy output
 
 class _Run(object):
     """docstring for _Run"""
@@ -314,6 +315,14 @@ class _Run(object):
         output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
+        # only red
+        # laser_parameters['Imax_uv'] = 0
+        output_red = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, 0.3,timesteps, laser_parameters)
+        S_avg_red = _Avg.focus_avg(output_red[0])
+        p_avg_red = _Avg.focus_avg(output_red[6]) # not working properly yet
+        # add both together with different weights
+        S_avg = 1*S_avg + 1*S_avg_red
+        p_avg = 1*p_avg + 1*p_avg_red
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
         return output
 
@@ -389,12 +398,12 @@ if __name__ == '__main__':
     m = 1 # mass in au
     rescatter_prob = 0
 
-    simulation_parameters = {'savename': 'Results/w3w/verlet_100fs_offset.h5',
+    simulation_parameters = {'savename': 'Results/w3w/verlet_fixedphase_background_highuv_smallp.h5',
                             'Atom': 'Neon',
-                            'timesteps': 30000,
-                            'min/maxtime': 6150,
+                            'timesteps': 10000,
+                            'min/maxtime': 2050, # 150fs
                             'npbins': 50,
-                            'pmax': 3,
+                            'pmax': 1.5,
                             'phisteps': 50,
                             'phimax': 2,
                             'nI': 10}
@@ -402,7 +411,7 @@ if __name__ == '__main__':
     laser_parameters = {'Imax_red': 1.17E14,
                         't_red(fs)': 35,
                         'FWHM_red(um)': 40,
-                        'Imax_uv': 1.85E13,
+                        'Imax_uv': 1.85E14,
                         't_uv(fs)': 40,
                         'FWHM_uv(um)': 35}
 

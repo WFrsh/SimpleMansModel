@@ -187,7 +187,7 @@ class _Ionization(object):
             # create the pulse
             Er = _Pulse.pulse_au(t, laser_parameters['t_red(fs)'], 800, Ir_x, 0, 0, 0)
             Eb = _Pulse.pulse_au(t, laser_parameters['t_blue(fs)'], 400, Ib_x, phi, 0, 0)
-            Ecombined_i = Er + Eb
+            Ecombined_i = Er #+ Eb
             intensities.append(np.max(.5*Ecombined_i**2)*3.51E16) # in W/cm^2
 
             # calculate the ionization rate
@@ -341,7 +341,7 @@ class _Run(object):
 
         asymmetry = _Asymmetry.fit_asymmetry(averaged_dist, phisteps, npbins)
         asymmetry = asymmetry + (E_fields,)
-        return outputs, asymmetry
+        return outputs , asymmetry
 
 class _Save(object):
     """docstring for _Save"""
@@ -387,9 +387,9 @@ if __name__ == '__main__':
     """code in here will be executed when running the script"""
     e = -1 # charge in au
     m = 1 # mass in au
-    rescatter_prob = 0
+    rescatter_prob = 1
 
-    simulation_parameters = {'savename': 'Results/w2w/verlet_test_3.h5',
+    simulation_parameters = {'savename': 'Results/red/cutoff_volume_avg.h5',
                             'Atom': 'Neon',
                             'timesteps': 10000,
                             'min/maxtime': 2050,

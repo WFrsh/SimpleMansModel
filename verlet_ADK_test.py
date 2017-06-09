@@ -187,6 +187,7 @@ def plot_(axes, phi,t,Ecombined_i,rate_0pi,p_final_0pi,N0p):
 
 def simulate_(phi,t,Ir,Iuv,x_uv):
     '''just a function to simulate it'''
+    p_final_0pi = np.zeros((timesteps))
     # create the pulse
     Ir_x = _Avg.gaussian(0,Ir,40)
     Iuv_x = _Avg.gaussian(x_uv,Iuv,35)
@@ -196,7 +197,6 @@ def simulate_(phi,t,Ir,Iuv,x_uv):
     rate_0pi = ADK(2.44, 0.579, 1., Ecombined_i, 1, 9.)*dt #Argon
     N0p = number_of_atoms(timesteps,rate_0pi)
 
-    p_final_0pi = np.zeros((timesteps))
     for i in range(timesteps):
         if i % 100 == 0:
             print(i)
@@ -204,21 +204,48 @@ def simulate_(phi,t,Ir,Iuv,x_uv):
         # p_final_0pi[i] = p_SMM(Ecombined_i,i,timesteps-1)
     return Ecombined_i, rate_0pi, p_final_0pi, N0p
 
+def focus_avg(nI):
+    '''focus average; do simulation for different intensities
+    create weigths for the histogram by the volume of that intensity
+    DOESNT WORK YET'''
+    I_disc, dI = np.linspace(0.001,1,nI,retstep=True)
+    hist = np.zeros((nI,50))
+    x_I = np.zeros(nI)
+    # create a gaussian
+    x = np.linspace(-4,4,10000)
+    gauss = _Avg.gaussian(x,1,1) # create a gaussian
+    for j in range(nI):
+        # simulate
+        outputs = simulate_(phi=0, t=t, Ir=I_disc[j]*1E14, Iuv=0, x_uv=0)
+        # calculate the volume where the intensity is within a certain intensity interval
+        for i in range(nI):
+            x_i = np.argmax(gauss >= I_disc[i]) # get the x value where the intensity is at I_i
+            x_I[i] = x[x_i]
+        x_I[-1] = 0 # Volume of max intensity is zero
+        # calculate the gradient as a weight for the focus averaging
+        dVdI = np.gradient(x_I**2)
+        avg_weights = np.abs(dVdI[i])*dI
+        E_final = outputs[2]*outputs[2]/2
+        # print((np.histogram(E_final, bins=np.linspace(0, 3, num=50), weights=avg_weights*outputs[2]*outputs[3])[0]).shape)
+        hist[j,:] = np.histogram(E_final, bins=np.linspace(0,2.5,51), weights=avg_weights*outputs[1]*outputs[3])[0]
+    return hist
+
 m = 1836*20
 e = +1
-timesteps = 20000
+timesteps = 10000
 rescatter_prob = 0
 t, dt = np.linspace(-4100,4100,timesteps,retstep=True) # time in fs 2050au = 50fs
 phases = np.linspace(0,2,6,endpoint=False)
 
-# p_t, x_ = p_verlet(Ecombined_i,500,timesteps,dt)
-# plt.plot(t,x_)
+# plot focus average
+# E = focus_avg(10)
+# [plt.semilogy(np.linspace(0,2.5,50),E[i,:]) for i in range(10)]
 
-Ecombined_i, rate_0pi, p_final_0pi, N0p = simulate_(1,t,Ir=1.17E14, Iuv=1.85E13, x_uv=0)
-Ecombined_i, rate_50pi, p_final_50pi, N50p = simulate_(1,t,Ir=1.17E14, Iuv=1.85E13, x_uv=50)
+Ecombined_i, rate_0pi, p_final_0pi, N0p = simulate_(1,t,Ir=1E14, Iuv=1E14, x_uv=0)
+# Ecombined_i, rate_50pi, p_final_50pi, N50p = simulate_(1,t,Ir=1.17E14, Iuv=1.85E13, x_uv=50)
 
-plt.figure()
-plt.plot(t,Ecombined_i)
+# plt.figure()
+# plt.plot(t,Ecombined_i)
 
 # # 1 Up = 0.218 a.u. (800nm, 1E14W/cm2)
 # E_final = p_final_0pi*p_final_0pi/2
@@ -231,7 +258,7 @@ plt.plot(t,Ecombined_i)
 # histogram of the two distributions
 plt.figure()
 plt.hist(p_final_0pi, bins=50, weights=rate_0pi*N0p, alpha=.5, label='0pi', orientation='horizontal', fill=False, histtype='step') #
-plt.hist(p_final_50pi, bins=50, weights=rate_50pi*N50p, alpha=.5, label='0pi', orientation='horizontal', fill=False, histtype='step') #
+# plt.hist(p_final_50pi, bins=50, weights=rate_50pi*N50p, alpha=.5, label='0pi', orientation='horizontal', fill=False, histtype='step') #
 # plt.legend()
 
 # plot multiple axes in one figure
