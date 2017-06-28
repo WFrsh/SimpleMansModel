@@ -130,7 +130,7 @@ class _Ionization(object):
             # velocity verlet integration
             x_t = x_t + dt*v_t + dt*dt/2/m*e*E[i]
             v_t = v_t + dt/2/m*e*(E[i+1] + E[i])
-            # check weather electron exits in the positive or negative direction
+            # check wether electron exits in the positive or negative direction
             if i == t0:
                 if x_t > 0:
                     x_positive = True
@@ -315,14 +315,14 @@ class _Run(object):
         output = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, phi,timesteps, laser_parameters)
         S_avg = _Avg.focus_avg(output[0])
         p_avg = _Avg.focus_avg(output[6]) # not working properly yet
-        # only red
-        # laser_parameters['Imax_uv'] = 0
-        output_red = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, 0.3,timesteps, laser_parameters)
-        S_avg_red = _Avg.focus_avg(output_red[0])
-        p_avg_red = _Avg.focus_avg(output_red[6]) # not working properly yet
-        # add both together with different weights
-        S_avg = 1*S_avg + 1*S_avg_red
-        p_avg = 1*p_avg + 1*p_avg_red
+        # # only red
+        # # laser_parameters['Imax_uv'] = 0
+        # output_red = _Ionization.final_distribution_intensity_atoms(1,nI,pbins, npbins, 0.3,timesteps, laser_parameters)
+        # S_avg_red = _Avg.focus_avg(output_red[0])
+        # p_avg_red = _Avg.focus_avg(output_red[6]) # not working properly yet
+        # # add both together with different weights
+        # S_avg = 1*S_avg + 1*S_avg_red
+        # p_avg = 1*p_avg + 1*p_avg_red
         output = output + (S_avg,p_avg,) # append focus averaged spectrum to the outputs
         return output
 
@@ -398,20 +398,20 @@ if __name__ == '__main__':
     m = 1 # mass in au
     rescatter_prob = 0
 
-    simulation_parameters = {'savename': 'Results/w3w/verlet_fixedphase_background_highuv_smallp.h5',
+    simulation_parameters = {'savename': 'Results/w3w/verlet_100pbins_tripleuv_triplered.h5',
                             'Atom': 'Neon',
-                            'timesteps': 10000,
+                            'timesteps': 1000,
                             'min/maxtime': 2050, # 150fs
-                            'npbins': 50,
+                            'npbins': 100,
                             'pmax': 1.5,
                             'phisteps': 50,
                             'phimax': 2,
                             'nI': 10}
 
-    laser_parameters = {'Imax_red': 1.17E14,
+    laser_parameters = {'Imax_red': 3E14, #1.17E14
                         't_red(fs)': 35,
                         'FWHM_red(um)': 40,
-                        'Imax_uv': 1.85E14,
+                        'Imax_uv': 6E13, #1.85E13
                         't_uv(fs)': 40,
                         'FWHM_uv(um)': 35}
 
